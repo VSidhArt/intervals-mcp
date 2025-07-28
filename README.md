@@ -94,6 +94,12 @@ Show my weekly activity summary for July 2025
 Show my wellness data from 2025-07-01 to 2025-07-28
 ```
 
+### Get Grouped Wellness Data (Recommended for large datasets)
+```
+Show my weekly wellness summary for July 2025
+Get my monthly wellness trends grouped by week
+```
+
 ## Available Tools
 
 ### `get_activities(oldest_date, newest_date=None)`
