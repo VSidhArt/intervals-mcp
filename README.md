@@ -83,6 +83,12 @@ Once configured, you can use these tools in Claude Desktop:
 Get my activities from 2025-07-28
 ```
 
+### Get Grouped Activities (Recommended for large datasets)
+```
+Get my activities grouped by sport from 2025-07-01 to 2025-07-28
+Show my weekly activity summary for July 2025
+```
+
 ### Get Wellness Data
 ```
 Show my wellness data from 2025-07-01 to 2025-07-28
@@ -91,11 +97,22 @@ Show my wellness data from 2025-07-01 to 2025-07-28
 ## Available Tools
 
 ### `get_activities(oldest_date, newest_date=None)`
-Fetches activities from intervals.icu.
+Fetches detailed activities from intervals.icu. Use for small datasets or when you need full activity details.
 
 **Parameters:**
 - `oldest_date` (required): Start date in YYYY-MM-DD format
 - `newest_date` (optional): End date in YYYY-MM-DD format
+
+### `get_grouped_activities(oldest_date, newest_date=None, group_by="sport", include_details=False)`
+Fetches and groups activities to reduce data volume. **Recommended for analyzing multiple activities or time periods.**
+
+**Parameters:**
+- `oldest_date` (required): Start date in YYYY-MM-DD format
+- `newest_date` (optional): End date in YYYY-MM-DD format
+- `group_by` (optional): Grouping method - "sport", "day", "week", or "month" (default: "sport")
+- `include_details` (optional): Include filtered activity details in each group (default: false)
+
+**Returns grouped statistics:** activity counts, total time/distance/calories, averages per group, and overall totals.
 
 ### `get_wellness(oldest_date, newest_date=None)`
 Fetches wellness metrics from intervals.icu.
