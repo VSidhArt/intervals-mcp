@@ -1,0 +1,10 @@
+[project]
+name = "intervals-mcp-server"
+version = "0.1.0"
+description = "MCP server for intervals.icu API integration"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.9.4",
+    "requests>=2.31.0",
+]
