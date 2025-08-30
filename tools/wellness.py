@@ -1,13 +1,50 @@
+"""MCP tools for Intervals.icu wellness operations."""
+
+from typing import Dict, Any, Optional
+import logging
+
 from server import mcp
-from utils.intervals_client import get_intervals_client, get_athlete_id, INTERVALS_BASE_URL
-from datetime import datetime
-from collections import defaultdict
+from services.wellness_service import WellnessService
+from transformers.wellness_transformer import WellnessTransformer
+from utils.intervals_client import IntervalsAPIClient
+from config.settings import get_config
+from exceptions import IntervalsError, ValidationError
+
+logger = logging.getLogger(__name__)
+
+# Initialize services
+api_client = IntervalsAPIClient()
+wellness_service = WellnessService(api_client)
+config = get_config()
 
 
 @mcp.tool()
-def get_wellness(oldest_date: str, newest_date: str = None):
-    """Fetch wellness data from intervals.icu for the configured athlete.
-    
+def get_wellness(oldest_date: str, newest_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Primary tool for fetching wellness data from intervals.icu for the configured athlete.
+
+    **Best for:** Getting daily wellness metrics, tracking health trends, monitoring recovery,
+    analyzing sleep patterns, weight tracking.
+    **Not recommended for:** Real-time monitoring; medical diagnosis; very large date ranges.
+    **Common mistakes:** Using wrong date format (must be YYYY-MM-DD); requesting years of data
+    at once.
+    **Prompt Example:** "Get my wellness data from 2024-01-01 to 2024-01-31" or
+    "Show me wellness metrics for last month"
+    **Usage Example:**
+    ```json
+    {
+      "name": "get_wellness",
+      "arguments": {
+        "oldest_date": "2024-01-01",
+        "newest_date": "2024-01-31"
+      }
+    }
+    ```
+    **Tool Relationships:** Use this first to get wellness records, then use get_grouped_wellness
+    for trend analysis or summary statistics.
+    **Returns:** Complete wellness data including weight, HRV, resting HR, sleep, fatigue,
+    mood, motivation, and training metrics (ATL/CTL/TSB).
+
     Parameters
     ----------
     oldest_date : str
@@ -16,56 +53,76 @@ def get_wellness(oldest_date: str, newest_date: str = None):
     newest_date : str, optional
         The newest date to fetch wellness data from (format: YYYY-MM-DD).
         If not provided, no upper date limit is applied.
-        
+
     Returns
     -------
     dict
-        Wellness data objects or error information
+        Dictionary containing:
+        - status: "success" or "error"
+        - count: Number of wellness records returned
+        - wellness: List of transformed wellness objects
+        - date_range: Date range of the wellness data
+
+    Raises
+    ------
+    ValidationError: If date format is invalid.
+    IntervalsError: If the API request fails.
     """
     try:
-        session = get_intervals_client()
-        athlete_id = get_athlete_id()
-        
-        # Build the URL
-        url = f"{INTERVALS_BASE_URL}/athlete/{athlete_id}/wellness"
-        
-        # Build query parameters
-        params = {'oldest': oldest_date}
-        if newest_date:
-            params['newest'] = newest_date
-        
-        # Make the API request
-        response = session.get(url, params=params)
-        response.raise_for_status()
-        
-        wellness_data = response.json()
-        
-        # Clean wellness data by removing keys with empty values
-        cleaned_wellness = []
-        for entry in wellness_data:
-            cleaned_entry = {}
-            for key, value in entry.items():
-                if value is not None and value != "" and value != []:
-                    cleaned_entry[key] = value
-            cleaned_wellness.append(cleaned_entry)
-        
-        return {
-            "status": "success",
-            "count": len(cleaned_wellness),
-            "wellness": cleaned_wellness
-        }
-        
-    except Exception as exc:
-        return {
-            "status": "error",
-            "error": str(exc)
-        }
+        logger.info(f"Fetching wellness data from {oldest_date} to {newest_date or 'now'}")
+
+        # Fetch wellness data from service
+        wellness_records = wellness_service.get_wellness(oldest_date, newest_date)
+
+        # Transform and return
+        transformed = WellnessTransformer.transform_wellness_response(wellness_records)
+
+        logger.info(f"Successfully fetched {transformed['count']} wellness records")
+        return transformed
+
+    except ValidationError as e:
+        logger.warning(f"Validation error: {e}")
+        return {"status": "error", "error": str(e), "field": e.field}
+    except IntervalsError as e:
+        logger.error(f"API error fetching wellness data: {e}")
+        return {"status": "error", "error": str(e)}
+    except Exception as e:
+        logger.error(f"Unexpected error fetching wellness data: {e}")
+        return {"status": "error", "error": str(e)}
 
 
 @mcp.tool()
-def get_grouped_wellness(oldest_date: str, newest_date: str = None, group_by: str = "week", include_details: bool = False):
-    """Fetch and group wellness data from intervals.icu to reduce data volume and provide summary statistics.
-    
+def get_grouped_wellness(
+    oldest_date: str,
+    newest_date: Optional[str] = None,
+    group_by: str = "month",
+    include_details: bool = False,
+) -> Dict[str, Any]:
+    """
+    Tool for fetching and grouping wellness data to show trends and patterns.
+
+    **Best for:** Analyzing wellness trends over time, creating health reports, tracking
+    recovery patterns, monitoring training stress balance, identifying correlations.
+    **Not recommended for:** Individual day analysis; real-time monitoring.
+    **Common mistakes:** Using invalid group_by value; requesting details for very large datasets.
+    **Prompt Example:** "Show me monthly wellness trends for 2024" or
+    "Group my wellness data by week for the last 3 months"
+    **Usage Example:**
+    ```json
+    {
+      "name": "get_grouped_wellness",
+      "arguments": {
+        "oldest_date": "2024-01-01",
+        "newest_date": "2024-03-31",
+        "group_by": "month",
+        "include_details": false
+      }
+    }
+    ```
+    **Tool Relationships:** Use after get_wellness to analyze patterns, or directly for
+    trend analysis when individual records aren't needed.
+    **Returns:** Grouped wellness data with averages and statistics per time period.
+
     Parameters
     ----------
     oldest_date : str
@@ -75,207 +132,45 @@ def get_grouped_wellness(oldest_date: str, newest_date: str = None, group_by: st
         The newest date to fetch wellness data from (format: YYYY-MM-DD).
         If not provided, no upper date limit is applied.
     group_by : str, optional
-        How to group wellness data. Options: "week", "month", "day". Default: "week"
+        How to group wellness data. Options: "week", "month", "all". Default: "month"
     include_details : bool, optional
-        Whether to include filtered wellness details in each group. Default: False
-        
+        Whether to include individual records in each group. Default: False
+
     Returns
     -------
     dict
-        Grouped wellness data with summary statistics
+        Dictionary containing:
+        - status: "success" or "error"
+        - groups: Dictionary of groups with summaries (when not "all")
+        - summary: Aggregate statistics (when group_by is "all")
+        - total_records: Total number of wellness records
+        - Additional metadata based on grouping type
+
+    Raises
+    ------
+    ValidationError: If parameters are invalid.
+    IntervalsError: If the API request fails.
     """
     try:
-        session = get_intervals_client()
-        athlete_id = get_athlete_id()
-        
-        # Build the URL
-        url = f"{INTERVALS_BASE_URL}/athlete/{athlete_id}/wellness"
-        
-        # Build query parameters
-        params = {'oldest': oldest_date}
-        if newest_date:
-            params['newest'] = newest_date
-        
-        # Make the API request
-        response = session.get(url, params=params)
-        response.raise_for_status()
-        
-        wellness_data = response.json()
-        
-        # Filter to essential fields only
-        essential_fields = [
-            'id', 'ctl', 'atl', 'rampRate', 'ctlLoad', 'atlLoad', 'weight', 
-            'restingHR', 'hrv', 'sleepSecs', 'sleepScore', 'sleepQuality', 
-            'steps', 'vo2max', 'fatigue', 'soreness', 'stress', 'mood', 'motivation'
-        ]
-        
-        filtered_wellness = []
-        for entry in wellness_data:
-            filtered_entry = {}
-            for field in essential_fields:
-                if field in entry and entry[field] is not None:
-                    filtered_entry[field] = entry[field]
-            filtered_wellness.append(filtered_entry)
-        
-        # Group wellness data
-        groups = defaultdict(list)
-        
-        for entry in filtered_wellness:
-            group_key = _get_wellness_group_key(entry, group_by)
-            groups[group_key].append(entry)
-        
-        # Calculate statistics for each group
-        group_stats = {}
-        total_stats = {
-            'total_entries': len(filtered_wellness),
-            'date_range': f"{oldest_date}" + (f" to {newest_date}" if newest_date else ""),
-            'avg_ctl': 0,
-            'avg_atl': 0,
-            'avg_resting_hr': 0,
-            'avg_hrv': 0,
-            'avg_sleep_score': 0,
-            'avg_steps': 0
-        }
-        
-        all_entries_for_totals = [entry for group_entries in groups.values() for entry in group_entries]
-        total_stats.update(_calculate_wellness_totals(all_entries_for_totals))
-        
-        for group_name, group_entries in groups.items():
-            stats = _calculate_wellness_group_stats(group_entries)
-            
-            # Include details if requested
-            if include_details:
-                stats['entries'] = group_entries
-                
-            group_stats[group_name] = stats
-        
-        return {
-            "status": "success",
-            "period": total_stats['date_range'],
-            "group_by": group_by,
-            "groups": group_stats,
-            "totals": total_stats
-        }
-        
-    except Exception as exc:
-        return {
-            "status": "error",
-            "error": str(exc)
-        }
+        logger.info(
+            f"Fetching grouped wellness data from {oldest_date} to {newest_date or 'now'}, " f"grouped by {group_by}"
+        )
 
+        # Fetch grouped wellness data from service
+        grouped = wellness_service.get_grouped_wellness(oldest_date, newest_date, group_by, include_details)
 
-def _get_wellness_group_key(entry, group_by):
-    """Get the grouping key for a wellness entry based on group_by parameter."""
-    date_str = entry.get('id', '')  # wellness uses 'id' as the date
-    if not date_str:
-        return 'Unknown'
-    
-    try:
-        date_obj = datetime.fromisoformat(date_str)
-        
-        if group_by == "day":
-            return date_obj.strftime('%Y-%m-%d')
-        elif group_by == "week":
-            year, week, _ = date_obj.isocalendar()
-            return f"{year}-W{week:02d}"
-        elif group_by == "month":
-            return date_obj.strftime('%Y-%m')
-            
-    except ValueError:
-        return 'Unknown'
-    
-    return 'Unknown'
+        # The service already returns a well-structured response
+        result = {"status": "success", **grouped}  # Include all the grouped data
 
+        logger.info(f"Successfully grouped {grouped.get('total_records', 0)} wellness records")
+        return result
 
-def _calculate_wellness_group_stats(entries):
-    """Calculate statistics for a group of wellness entries."""
-    stats = {
-        'count': len(entries),
-        'avg_ctl': 0,
-        'avg_atl': 0,
-        'avg_resting_hr': 0,
-        'avg_hrv': 0,
-        'avg_sleep_score': 0,
-        'avg_sleep_hours': 0,
-        'avg_steps': 0,
-        'total_training_load': 0
-    }
-    
-    if not entries:
-        return stats
-    
-    # Initialize sums and counts for averaging
-    sums = {}
-    counts = {}
-    fields_to_average = ['ctl', 'atl', 'restingHR', 'hrv', 'sleepScore', 'sleepSecs', 'steps', 'ctlLoad']
-    
-    for field in fields_to_average:
-        sums[field] = 0
-        counts[field] = 0
-    
-    for entry in entries:
-        for field in fields_to_average:
-            if field in entry and entry[field] is not None:
-                sums[field] += entry[field]
-                counts[field] += 1
-        
-        # Sum training load
-        if entry.get('ctlLoad'):
-            stats['total_training_load'] += entry['ctlLoad']
-    
-    # Calculate averages
-    if counts['ctl'] > 0:
-        stats['avg_ctl'] = round(sums['ctl'] / counts['ctl'], 2)
-    if counts['atl'] > 0:
-        stats['avg_atl'] = round(sums['atl'] / counts['atl'], 2)
-    if counts['restingHR'] > 0:
-        stats['avg_resting_hr'] = round(sums['restingHR'] / counts['restingHR'], 1)
-    if counts['hrv'] > 0:
-        stats['avg_hrv'] = round(sums['hrv'] / counts['hrv'], 1)
-    if counts['sleepScore'] > 0:
-        stats['avg_sleep_score'] = round(sums['sleepScore'] / counts['sleepScore'], 1)
-    if counts['sleepSecs'] > 0:
-        stats['avg_sleep_hours'] = round(sums['sleepSecs'] / counts['sleepSecs'] / 3600, 1)
-    if counts['steps'] > 0:
-        stats['avg_steps'] = round(sums['steps'] / counts['steps'])
-    
-    return stats
-
-
-def _calculate_wellness_totals(entries):
-    """Calculate total statistics across all wellness entries."""
-    if not entries:
-        return {}
-    
-    totals = {}
-    sums = {}
-    counts = {}
-    fields_to_average = ['ctl', 'atl', 'restingHR', 'hrv', 'sleepScore', 'sleepSecs', 'steps']
-    
-    for field in fields_to_average:
-        sums[field] = 0
-        counts[field] = 0
-    
-    for entry in entries:
-        for field in fields_to_average:
-            if field in entry and entry[field] is not None:
-                sums[field] += entry[field]
-                counts[field] += 1
-    
-    # Calculate averages
-    if counts['ctl'] > 0:
-        totals['avg_ctl'] = round(sums['ctl'] / counts['ctl'], 2)
-    if counts['atl'] > 0:
-        totals['avg_atl'] = round(sums['atl'] / counts['atl'], 2)
-    if counts['restingHR'] > 0:
-        totals['avg_resting_hr'] = round(sums['restingHR'] / counts['restingHR'], 1)
-    if counts['hrv'] > 0:
-        totals['avg_hrv'] = round(sums['hrv'] / counts['hrv'], 1)
-    if counts['sleepScore'] > 0:
-        totals['avg_sleep_score'] = round(sums['sleepScore'] / counts['sleepScore'], 1)
-    if counts['sleepSecs'] > 0:
-        totals['avg_sleep_hours'] = round(sums['sleepSecs'] / counts['sleepSecs'] / 3600, 1)
-    if counts['steps'] > 0:
-        totals['avg_steps'] = round(sums['steps'] / counts['steps'])
-    
-    return totals
+    except ValidationError as e:
+        logger.warning(f"Validation error: {e}")
+        return {"status": "error", "error": str(e), "field": e.field}
+    except IntervalsError as e:
+        logger.error(f"API error fetching grouped wellness data: {e}")
+        return {"status": "error", "error": str(e)}
+    except Exception as e:
+        logger.error(f"Unexpected error fetching grouped wellness data: {e}")
+        return {"status": "error", "error": str(e)}

@@ -8,3 +8,40 @@ dependencies = [
     "mcp[cli]>=1.9.4",
     "requests>=2.31.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "responses>=0.25.0",  # HTTP mocking
+    "black>=24.0.0",       # Code formatting
+    "flake8>=7.0.0",       # Linting
+    "mypy>=1.8.0",         # Type checking
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=.",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html:htmlcov",
+    "--cov-fail-under=80"
+]
+
+[tool.flake8]
+max-line-length = 120
+exclude = [".git", "__pycache__", "build", "dist", ".venv", "venv"]
+ignore = ["E203", "W503"]  # Black compatibility
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
