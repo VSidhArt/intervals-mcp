@@ -5,6 +5,7 @@ description = "MCP server for intervals.icu API integration"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastmcp>=2.12.2",
     "mcp[cli]>=1.9.4",
     "requests>=2.31.0",
 ]
